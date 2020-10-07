@@ -33,6 +33,10 @@ export function setCaretPosition(ctrl, pos) {
 
 export const defaultOptions = {
   allCountries,
+  ariaDescribedby: '',
+  ariaLabel: '',
+  ariaLabelledby: '',
+  ariaInvalid: false,
   autocomplete: 'on',
   autofocus: false,
   customValidate: false,

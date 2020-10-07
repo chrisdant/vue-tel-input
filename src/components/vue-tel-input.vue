@@ -1,9 +1,15 @@
 <template>
   <div :class="['vue-tel-input', wrapperClasses, { disabled: disabled }]">
     <div
+      ref="button"
       v-click-outside="clickedOutside"
       :class="['vti__dropdown', { open: open }]"
       :tabindex="dropdownOptions && dropdownOptions.tabindex ? dropdownOptions.tabindex : 0"
+      role="button"
+      :aria-label="`Select a country: ${activeCountry.name}`"
+      aria-haspopup="listbox"
+      :aria-expanded="open"
+      @keyup="catchKeyUpEvents"
       @keydown="keyboardNav"
       @click="toggleDropdown"
       @keydown.esc="reset"
@@ -17,11 +23,22 @@
           <span class="vti__dropdown-arrow">{{ open ? "▲" : "▼" }}</span>
         </slot>
       </span>
-      <ul ref="list" class="vti__dropdown-list" v-show="open" :class="dropdownOpenDirection">
+      <ul
+        ref="list"
+        class="vti__dropdown-list"
+        v-show="open"
+        :class="dropdownOpenDirection"
+        tabindex="-1"
+        aria-label="Select a country"
+        :aria-activedescendant="selectedIndex !== null && open ? `${inputId}-dropdown-item-${selectedIndex}` : null"
+        >
         <li
           v-for="(pb, index) in sortedCountries"
+          :id="`${inputId}-dropdown-item-${index}`"
           :class="['vti__dropdown-item', getItemClass(index, pb.iso2)]"
           :key="pb.iso2 + (pb.preferred ? '-preferred' : '')"
+          role="option"
+          :aria-selected="index === selectedIndex && open"
           @click="choose(pb, true)"
           @mousemove="selectedIndex = index"
         >
@@ -48,6 +65,10 @@
       :readonly="readonly"
       :required="required"
       :tabindex="inputOptions && inputOptions.tabindex ? inputOptions.tabindex : 0"
+      :aria-label="ariaLabel ? ariaLabel : null"
+      :aria-labelledby="ariaLabelledby ? ariaLabelledby : null"
+      :aria-describedby="ariaDescribedby ? ariaDescribedby : null"
+      :aria-invalid="ariaInvalid"
       @blur="onBlur"
       @focus="onFocus"
       @input="onInput"
@@ -83,6 +104,22 @@ export default {
     allCountries: {
       type: Array,
       default: () => getDefault('allCountries'),
+    },
+    ariaDescribedby: {
+      type: String,
+      default: () => getDefault('ariaDescribedby'),
+    },
+    ariaLabel: {
+      type: String,
+      default: () => getDefault('ariaLabel'),
+    },
+    ariaLabelledby: {
+      type: String,
+      default: () => getDefault('ariaLabelledby'),
+    },
+    ariaInvalid: {
+      type: Boolean,
+      default: () => getDefault('ariaInvalid'),
     },
     autocomplete: {
       type: String,
@@ -301,7 +338,9 @@ export default {
         }
       }
       // Reset the cursor to current position if it's not the last character.
-      if (this.cursorPosition < oldValue.length) {
+      if (this.cursorPosition < oldValue.length &&
+        // Selecting in dropdown shouldn't move focus to input for accessibility reasons
+        document.activeElement !== this.$refs.button) {
         this.$nextTick(() => { setCaretPosition(this.$refs.input, this.cursorPosition); });
       }
     },
@@ -484,11 +523,26 @@ export default {
     focus() {
       this.$refs.input.focus();
     },
+    openMenu() {
+      this.open = true;
+      if (this.selectedIndex === null) {
+        this.selectedIndex = 0;
+      }
+      this.$nextTick(() => {this.$refs.list.focus()});
+    },
+    closeMenu() {
+      this.open = false;
+      this.$refs.button.focus();
+    },
     toggleDropdown() {
       if (this.disabled) {
         return;
       }
-      this.open = !this.open;
+      if (this.open) {
+        this.closeMenu();
+      } else {
+        this.openMenu();
+      }
     },
     clickedOutside() {
       this.open = false;
@@ -497,7 +551,7 @@ export default {
       if (e.keyCode === 40) {
         // down arrow
         e.preventDefault();
-        this.open = true;
+        this.openMenu();
         if (this.selectedIndex === null) {
           this.selectedIndex = 0;
         } else {
@@ -513,7 +567,7 @@ export default {
       } else if (e.keyCode === 38) {
         // up arrow
         e.preventDefault();
-        this.open = true;
+        this.openMenu();
         if (this.selectedIndex === null) {
           this.selectedIndex = this.sortedCountries.length - 1;
         } else {
@@ -528,7 +582,32 @@ export default {
         if (this.selectedIndex !== null) {
           this.choose(this.sortedCountries[this.selectedIndex], true);
         }
-        this.open = !this.open;
+        if (this.open) {
+          this.closeMenu();
+        } else {
+          this.openMenu();
+        }
+      } else if (e.keyCode === 33) {
+        // page up
+        if (this.open) {
+          e.preventDefault();
+          this.selectedIndex = 0;
+          const selEle = this.$refs.list.children[this.selectedIndex];
+          if (selEle.offsetTop < this.$refs.list.scrollTop) {
+            this.$refs.list.scrollTop = selEle.offsetTop;
+          }
+        }
+      } else if (e.keyCode === 34) {
+        // page down
+        e.preventDefault();
+        this.selectedIndex = this.sortedCountries.length - 1;
+        const selEle = this.$refs.list.children[this.selectedIndex];
+        if (selEle.offsetTop + selEle.clientHeight
+          > this.$refs.list.scrollTop + this.$refs.list.clientHeight) {
+          this.$refs.list.scrollTop = selEle.offsetTop
+            - this.$refs.list.clientHeight
+            + selEle.clientHeight;
+        }
       } else {
         // typing a country's name
         this.typeToFindInput += e.key;
@@ -552,9 +631,21 @@ export default {
         }
       }
     },
-    reset() {
+    // Catch keyup events for keys used by this component so they don't cause problems for parent elements.
+    catchKeyUpEvents(e) {
+      const keyCodes = [40, 38, 13, 33, 34, 27];
+      if (keyCodes.includes(e.keyCode)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    reset(e) {
+      if (this.open) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       this.selectedIndex = this.sortedCountries.map((c) => c.iso2).indexOf(this.activeCountry.iso2);
-      this.open = false;
+      this.closeMenu();
     },
     setDropdownPosition() {
       const spaceBelow = window.innerHeight - this.$el.getBoundingClientRect().bottom;
