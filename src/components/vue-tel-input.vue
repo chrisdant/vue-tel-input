@@ -636,13 +636,11 @@ export default {
       const keyCodes = [40, 38, 13, 33, 34, 27];
       if (keyCodes.includes(e.keyCode)) {
         e.preventDefault();
-        e.stopPropagation();
       }
     },
     reset(e) {
       if (this.open) {
         e.preventDefault();
-        e.stopPropagation();
       }
       this.selectedIndex = this.sortedCountries.map((c) => c.iso2).indexOf(this.activeCountry.iso2);
       this.closeMenu();
